@@ -1,23 +1,96 @@
-name: Build OnePlus 6T Kernel
+name: Build OnePlus 6T Kernel with KSU-Next and SUSFS
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build Kernel
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
     steps:
-      - name: Build Kernel with KernelSU-Next
-        uses: dabao1955/kernel_build_action@main
+      - name: Maximize Build Space & Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
+            gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync \
+            schedtool squashfs-tools xsltproc zip zlib1g-dev libssl-dev python3 libarchive-tools
+
+      - name: Set Up Clang & Cross Toolchains
+        run: |
+          mkdir -p toolchain
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain/clang
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 https://github.com/LineageOS/android_kernel_oneplus_sdm845 -b lineage-20 kernel
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
+
+      - name: Integrate KernelSU-Next
+        run: |
+          cd kernel
+          # Setup KernelSU-Next driver
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          
+          # Patch KernelSU-Next for SUSFS
+          cd drivers/kernelsu
+          git apply ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch
+          cd ../..
+
+      - name: Apply SUSFS 4.9 Kernel Patches
+        run: |
+          cd kernel
+          # Copy SUSFS core source files into the kernel tree
+          cp ../susfs4ksu/kernel_patches/fs/* fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
+          
+          # Apply the 4.9 patch
+          git apply ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || {
+            echo "git apply failed. Attempting patch command with 2-level strip..."
+            patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch
+          }
+
+          # Enable KSU and SUSFS in fajita defconfig
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/fajita_defconfig
+          echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/fajita_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/fajita_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> arch/arm64/configs/fajita_defconfig
+
+      - name: Build Kernel
+        run: |
+          cd kernel
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          make O=out fajita_defconfig
+          make -j$(nproc) O=out
+
+      - name: Package with AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          # fajita uses Image.gz-dtb
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb anykernel/Image.gz-dtb
+          cd anykernel
+          zip -r9 ../OnePlus6T-KSU-Next-SUSFS.zip * -x .git README.md
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
         with:
-          kernel-url: https://github.com/LineageOS/android_kernel_oneplus_sdm845
-          kernel-branch: lineage-20
-          config: fajita_defconfig
-          arch: arm64
-          clang: true
-          clang-version: r383902b
-          ksu: true
-          ksu-version: next
-          ksu-url: https://github.com/rifsxd/KernelSU-Next
-          anykernel3: true
-          release: true
-          access-token: ${{ secrets.GITHUB_TOKEN }}
+          name: OnePlus6T-KSU-Next-SUSFS-Kernel
+          path: OnePlus6T-KSU-Next-SUSFS.zip
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: OnePlus 6T KernelSU-Next + SUSFS (Run #${{ github.run_number }})
+          files: OnePlus6T-KSU-Next-SUSFS.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
