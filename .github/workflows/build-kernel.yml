@@ -30,14 +30,14 @@ jobs:
       - name: Integrate KernelSU-Next
         working-directory: kernel
         run: |
-          # 1. Clone KernelSU-Next
+          # Clone KernelSU-Next
           git clone --depth=1 https://github.com/rifsxd/KernelSU-Next.git drivers/kernelsu
 
-          # 2. Add symlink so drivers/kernelsu/Kconfig and Makefile resolve correctly
+          # Create symlinks for Kconfig and Makefile
           ln -sf kernel/Kconfig drivers/kernelsu/Kconfig
           ln -sf kernel/Makefile drivers/kernelsu/Makefile
 
-          # 3. Wire into drivers Kconfig and Makefile if not present
+          # Connect KSU to drivers
           if ! grep -q "CONFIG_KSU" drivers/Kconfig; then
             sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           fi
@@ -45,7 +45,7 @@ jobs:
             echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           fi
 
-          # 4. Patch KernelSU-Next for SUSFS
+          # Patch KernelSU-Next for SUSFS
           cd drivers/kernelsu
           patch -p1 --forward < ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch || true
 
@@ -59,7 +59,8 @@ jobs:
           # Apply SUSFS 4.9 patch
           patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || true
 
-          # Append configuration options to defconfig
+          # Set required defconfig options (including NR_CPUS fix)
+          echo "CONFIG_NR_CPUS=8" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/fajita_defconfig
@@ -72,6 +73,9 @@ jobs:
 
           # Configure defconfig
           make O=out ARCH=arm64 SUBARCH=arm64 fajita_defconfig
+
+          # Ensure CONFIG_NR_CPUS is 8 in the generated config
+          sed -i 's/CONFIG_NR_CPUS=.*/CONFIG_NR_CPUS=8/' out/.config
 
           # Compile kernel
           make -j$(nproc) O=out \
