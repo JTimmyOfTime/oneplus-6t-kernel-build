@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     name: Build Kernel
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
 
@@ -14,10 +14,12 @@ jobs:
       - name: Install Base Packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential curl flex git libssl-dev lzop patch python3 zip
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential curl flex git libssl-dev lzop patch python3 zip
 
       - name: Clone Proton Clang
         run: |
+          mkdir -p toolchain
           git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain/clang
 
       - name: Clone Sources
@@ -28,10 +30,10 @@ jobs:
       - name: Integrate KernelSU-Next
         run: |
           cd kernel
-          # Setup KSU-Next
+          # Setup KernelSU-Next driver
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-          # Patch KSU-Next for SUSFS
+          # Patch KernelSU-Next for SUSFS
           if [ -d "drivers/kernelsu" ]; then
             cd drivers/kernelsu
             patch -p1 --forward < ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch || true
@@ -41,14 +43,14 @@ jobs:
       - name: Patch Kernel for SUSFS
         run: |
           cd kernel
-          # Copy SUSFS sources
+          # Copy SUSFS sources into the kernel tree
           cp ../susfs4ksu/kernel_patches/fs/* fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
 
-          # Apply 4.9 patch
+          # Apply the 4.9 patch
           patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || true
 
-          # Enable config options
+          # Enable config options in fajita defconfig
           echo "CONFIG_KSU=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/fajita_defconfig
@@ -58,11 +60,11 @@ jobs:
         run: |
           cd kernel
           export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH"
-          
-          # Generate defconfig
+
+          # Configure defconfig
           make O=out ARCH=arm64 SUBARCH=arm64 fajita_defconfig
-          
-          # Build with LLVM=1 to use integrated Clang assembler/tools
+
+          # Compile using Proton Clang's integrated toolchain
           make -j$(nproc) O=out \
             ARCH=arm64 \
             SUBARCH=arm64 \
