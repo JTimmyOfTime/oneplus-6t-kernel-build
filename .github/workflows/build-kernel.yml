@@ -14,7 +14,7 @@ jobs:
       - name: Install Minimal Requirements
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends bc lzop
+          sudo apt-get install -y --no-install-recommends bc lzop patch
 
       - name: Set Up Proton-Clang Toolchain
         run: |
@@ -26,11 +26,21 @@ jobs:
           git clone --depth=1 https://github.com/LineageOS/android_kernel_oneplus_sdm845 -b lineage-20 kernel
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
 
-      - name: Integrate KernelSU-Next
+      - name: Integrate KernelSU-Next Manually
         run: |
           cd kernel
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-          
+          # Clone KernelSU-Next directly into drivers/kernelsu
+          git clone --depth=1 https://github.com/rifsxd/KernelSU-Next.git -b next drivers/kernelsu
+
+          # Wire KernelSU into drivers/Kconfig and drivers/Makefile
+          if ! grep -q "CONFIG_KSU" drivers/Kconfig; then
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          fi
+          if ! grep -q "CONFIG_KSU" drivers/Makefile; then
+            echo "obj-\$(CONFIG_KSU) += kernelsu/" >> drivers/Makefile
+          fi
+
+          # Patch KernelSU-Next for SUSFS
           cd drivers/kernelsu
           git apply ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch
           cd ../..
@@ -40,10 +50,12 @@ jobs:
           cd kernel
           cp ../susfs4ksu/kernel_patches/fs/* fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
-          
+
+          # Apply the 4.9 patch
           git apply ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || \
             patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch
 
+          # Enable KSU and SUSFS in defconfig
           echo "CONFIG_KSU=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/fajita_defconfig
