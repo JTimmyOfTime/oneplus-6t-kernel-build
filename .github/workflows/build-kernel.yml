@@ -1,0 +1,23 @@
+name: Build OnePlus 6T Kernel
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Build Kernel with KernelSU-Next
+        uses: dabao1955/kernel_build_action@main
+        with:
+          kernel-url: https://github.com/LineageOS/android_kernel_oneplus_sdm845
+          kernel-branch: lineage-20
+          config: fajita_defconfig
+          arch: arm64
+          clang: true
+          clang-version: r383902b
+          ksu: true
+          ksu-version: next
+          ksu-url: https://github.com/rifsxd/KernelSU-Next
+          anykernel3: true
+          release: true
+          access-token: ${{ secrets.GITHUB_TOKEN }}
