@@ -11,13 +11,10 @@ jobs:
       contents: write
 
     steps:
-      - name: Install All Dependencies
+      - name: Install Minimal Requirements
         run: |
-          sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg \
-            gperf libxml2 libxml2-utils lzop rsync squashfs-tools xsltproc zip zlib1g-dev \
-            libssl-dev python3 patch gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bc lzop
 
       - name: Set Up Proton-Clang Toolchain
         run: |
