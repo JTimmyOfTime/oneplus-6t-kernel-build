@@ -79,6 +79,11 @@ jobs:
           # Generate initial defconfig
           make O=out ARCH=arm64 SUBARCH=arm64 fajita_defconfig
 
+          # Disable the broken OEM debug and MAX98927 calibration extensions in .config
+          scripts/config --file out/.config --disable CONFIG_SND_SOC_MAX98927
+          scripts/config --file out/.config --disable CONFIG_ONEPLUS_OEM_FORCE_DUMP
+          scripts/config --file out/.config --set-val CONFIG_NR_CPUS 8
+
           # Compile kernel
           make -j$(nproc) O=out \
             ARCH=arm64 \
