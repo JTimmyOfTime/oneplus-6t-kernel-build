@@ -11,19 +11,21 @@ jobs:
       contents: write
 
     steps:
-      - name: Maximize Build Space & Install Dependencies
+      - name: Maximize Build Space & Install All Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
-            gcc-multilib git gnupg gperf libxml2 libxml2-utils lzop pngcrush rsync \
-            schedtool squashfs-tools xsltproc zip zlib1g-dev libssl-dev python3 libarchive-tools
+          sudo apt-get install -y bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gnupg gperf libxml2 libxml2-utils \
+            lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
+            libssl-dev python3 libarchive-tools patch patchutils gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
 
-      - name: Set Up Clang & Cross Toolchains
+      - name: Set Up Proton-Clang Toolchain
         run: |
           mkdir -p toolchain
           git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain/clang
 
-      - name: Clone Kernel Source
+      - name: Clone Kernel Source and SUSFS
         run: |
           git clone --depth=1 https://github.com/LineageOS/android_kernel_oneplus_sdm845 -b lineage-20 kernel
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
@@ -31,10 +33,8 @@ jobs:
       - name: Integrate KernelSU-Next
         run: |
           cd kernel
-          # Setup KernelSU-Next driver
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           
-          # Patch KernelSU-Next for SUSFS
           cd drivers/kernelsu
           git apply ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch
           cd ../..
@@ -42,17 +42,14 @@ jobs:
       - name: Apply SUSFS 4.9 Kernel Patches
         run: |
           cd kernel
-          # Copy SUSFS core source files into the kernel tree
           cp ../susfs4ksu/kernel_patches/fs/* fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
           
-          # Apply the 4.9 patch
-          git apply ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || {
-            echo "git apply failed. Attempting patch command with 2-level strip..."
-            patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch
-          }
+          # Try git apply first, fall back to patch with error checking
+          git apply ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || \
+            patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch
 
-          # Enable KSU and SUSFS in fajita defconfig
+          # Enable KSU and SUSFS in defconfig
           echo "CONFIG_KSU=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/fajita_defconfig
@@ -74,7 +71,6 @@ jobs:
       - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
-          # fajita uses Image.gz-dtb
           cp kernel/out/arch/arm64/boot/Image.gz-dtb anykernel/Image.gz-dtb
           cd anykernel
           zip -r9 ../OnePlus6T-KSU-Next-SUSFS.zip * -x .git README.md
