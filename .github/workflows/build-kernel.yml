@@ -30,24 +30,30 @@ jobs:
       - name: Integrate KernelSU-Next
         run: |
           cd kernel
-          # Setup KernelSU-Next driver
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
+          # Clone KernelSU-Next directly without running remote curl scripts
+          git clone --depth=1 https://github.com/rifsxd/KernelSU-Next.git drivers/kernelsu
+
+          # Wire KSU into drivers build tree
+          if ! grep -q "CONFIG_KSU" drivers/Kconfig; then
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          fi
+          if ! grep -q "CONFIG_KSU" drivers/Makefile; then
+            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          fi
 
           # Patch KernelSU-Next for SUSFS
-          if [ -d "drivers/kernelsu" ]; then
-            cd drivers/kernelsu
-            patch -p1 --forward < ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch || true
-            cd ../..
-          fi
+          cd drivers/kernelsu
+          patch -p1 --forward < ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch || true
+          cd ../..
 
       - name: Patch Kernel for SUSFS
         run: |
           cd kernel
-          # Copy SUSFS sources into the kernel tree
+          # Copy SUSFS sources into kernel tree
           cp ../susfs4ksu/kernel_patches/fs/* fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
 
-          # Apply the 4.9 patch
+          # Apply 4.9 patch
           patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || true
 
           # Enable config options in fajita defconfig
@@ -64,7 +70,7 @@ jobs:
           # Configure defconfig
           make O=out ARCH=arm64 SUBARCH=arm64 fajita_defconfig
 
-          # Compile using Proton Clang's integrated toolchain
+          # Compile kernel
           make -j$(nproc) O=out \
             ARCH=arm64 \
             SUBARCH=arm64 \
