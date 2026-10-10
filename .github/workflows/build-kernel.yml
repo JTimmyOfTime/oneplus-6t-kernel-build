@@ -33,24 +33,30 @@ jobs:
         run: |
           cd kernel
 
-          # 1. Setup KernelSU-Next directly
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          # 1. Clone KernelSU-Next directly into drivers/kernelsu
+          git clone --depth=1 https://github.com/rifsxd/KernelSU-Next.git drivers/kernelsu
 
-          # 2. Patch KernelSU-Next for SUSFS
-          if [ -d "drivers/kernelsu" ]; then
-            cd drivers/kernelsu
-            patch -p1 --forward < ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch || true
-            cd ../..
+          # 2. Add entry to drivers/Kconfig and drivers/Makefile if not present
+          if ! grep -q "CONFIG_KSU" drivers/Kconfig; then
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          fi
+          if ! grep -q "CONFIG_KSU" drivers/Makefile; then
+            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           fi
 
-          # 3. Copy SUSFS core kernel files
+          # 3. Apply SUSFS patch to KernelSU-Next
+          cd drivers/kernelsu
+          patch -p1 --forward < ../../../susfs4ksu/KernelSU/10_enable_susfs_for_ksu.patch || true
+          cd ../..
+
+          # 4. Copy SUSFS core kernel files
           cp ../susfs4ksu/kernel_patches/fs/* fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* include/linux/
 
-          # 4. Patch Kernel 4.9 core for SUSFS
+          # 5. Patch Kernel 4.9 core for SUSFS
           patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.9.patch || true
 
-          # 5. Append KSU & SUSFS configuration
+          # 6. Configure flags in fajita_defconfig
           echo "CONFIG_KSU=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/fajita_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/fajita_defconfig
@@ -67,7 +73,6 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-          # Disable -Werror to prevent warnings from failing the build
           make O=out fajita_defconfig
           make -j$(nproc) O=out KCFLAGS="-Wno-error" KCPPFLAGS="-Wno-error"
 
